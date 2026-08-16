@@ -1,16 +1,18 @@
 
-const CACHE_NAME = 'flowstate-v3';
+const CACHE_NAME = 'flowstate-v4';
 const ASSETS = [
-  '/flowstate/',
-  '/flowstate/index.html',
-  '/flowstate/manifest.json',
+  './',
+  './index.html',
+  './manifest.json',
   'https://cdn.tailwindcss.com'
 ];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(ASSETS);
+      return cache.addAll(ASSETS).catch((err) => {
+        console.warn('Pre-caching assets failed, continuing:', err);
+      });
     })
   );
   self.skipWaiting();
@@ -32,11 +34,14 @@ self.addEventListener('fetch', (event) => {
 
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
-      return cachedResponse || fetch(event.request).then((networkResponse) => {
-        if (networkResponse && networkResponse.status === 200) {
+      if (cachedResponse) {
+        return cachedResponse;
+      }
+      return fetch(event.request).then((networkResponse) => {
+        if (networkResponse && networkResponse.status === 200 && event.request.url.startsWith('http')) {
           const responseClone = networkResponse.clone();
           caches.open(CACHE_NAME).then((cache) => {
-            cache.put(event.request, responseClone);
+            cache.put(event.request, responseClone).catch(() => {});
           });
         }
         return networkResponse;
