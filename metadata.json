@@ -1,0 +1,8 @@
+{
+  "name": "FlowState Progressive Tracker",
+  "description": "A minimalist, privacy-focused flow and pomodoro tracker with custom day reset boundaries, rich daily/weekly/monthly analytics, and seamless session logs.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
