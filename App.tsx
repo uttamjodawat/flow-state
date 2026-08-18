@@ -29,7 +29,13 @@ import {
   Square, 
   Command, 
   ChevronDown,
-  Menu
+  ChevronUp,
+  Menu,
+  AppWindow,
+  Minimize2,
+  Maximize2,
+  SlidersHorizontal,
+  Sparkles
 } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -41,6 +47,10 @@ const App: React.FC = () => {
 
   // Active Tab state
   const [activeTab, setActiveTab] = useState<ActiveTab>('timer');
+
+  // Floating Widget Mode toggle
+  const [isFloatingWidget, setIsFloatingWidget] = useState<boolean>(false);
+  const [showTodayLogs, setShowTodayLogs] = useState<boolean>(true);
 
   // Helper for safe JSON parsing
   const safeGetJson = <T,>(key: string, fallback: T): T => {
@@ -327,6 +337,9 @@ const App: React.FC = () => {
       } else if (e.key === 'd' || e.key === 'D' || e.key === '3') {
         e.preventDefault();
         handleModeClick(SessionMode.DISTRACTED);
+      } else if (e.key === 'w' || e.key === 'W') {
+        e.preventDefault();
+        setIsFloatingWidget(prev => !prev);
       } else if (e.key === ' ' || e.key === 'Escape') {
         if (activeSession) {
           e.preventDefault();
@@ -414,56 +427,108 @@ const App: React.FC = () => {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
+  // Count of today's sessions for summary
+  const todaySessionsCount = useMemo(() => {
+    const dayStart = getVirtualDayStart(currentTime, dayResetTime);
+    return sessions.filter(s => s.startTime >= dayStart).length;
+  }, [sessions, currentTime, dayResetTime]);
+
   return (
-    <div className={`min-h-screen flex flex-col relative bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 transition-colors duration-200`}>
+    <div className={`min-h-screen flex flex-col relative bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 transition-colors duration-200 select-none sm:select-auto`}>
       
-      {/* Top Right Menu Trigger */}
-      <div className="fixed top-4 right-4 sm:top-6 sm:right-6 z-50">
-        <button
-          onClick={() => setShowMenuModal(true)}
-          className="p-3 rounded-2xl bg-white/85 dark:bg-zinc-900/85 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-200 border border-zinc-200/80 dark:border-zinc-800 shadow-lg shadow-black/5 dark:shadow-black/20 backdrop-blur-md transition-all hover:scale-105 active:scale-95 flex items-center justify-center group"
-          title="Menu & Preferences (Press M)"
-          aria-label="Open Menu"
-        >
-          <Menu size={19} className="group-hover:text-emerald-500 transition-colors" />
-        </button>
-      </div>
+      {/* Top Floating Control Bar */}
+      <header className="sticky top-0 z-40 w-full px-3 sm:px-6 py-2.5 sm:py-3 flex items-center justify-between pointer-events-none">
+        {/* Left: App Logo / Active Flow Status */}
+        <div className="pointer-events-auto flex items-center gap-2">
+          <button
+            onClick={() => setActiveTab('timer')}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-white/85 dark:bg-zinc-900/85 hover:bg-zinc-100 dark:hover:bg-zinc-800 border border-zinc-200/80 dark:border-zinc-800 shadow-md backdrop-blur-md transition-all group"
+            title="FlowState Cockpit"
+          >
+            <div className={`w-2.5 h-2.5 rounded-full ${activeSession ? 'bg-emerald-500 animate-pulse' : 'bg-zinc-400 dark:bg-zinc-600'}`} />
+            <span className="text-xs font-black tracking-tight text-zinc-900 dark:text-white uppercase">
+              Flow<span className="text-emerald-500">State</span>
+            </span>
+            {activeSession && (
+              <span className="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                {activeSession.mode}
+              </span>
+            )}
+          </button>
+        </div>
+
+        {/* Right: Floating Widget View Toggle & Menu */}
+        <div className="pointer-events-auto flex items-center gap-1.5 sm:gap-2">
+          {/* Floating Widget Mode Toggle */}
+          <button
+            onClick={() => setIsFloatingWidget(prev => !prev)}
+            className={`p-2.5 rounded-2xl border shadow-md backdrop-blur-md transition-all flex items-center gap-1.5 text-xs font-bold ${
+              isFloatingWidget
+                ? 'bg-emerald-500 text-white border-emerald-400 shadow-emerald-500/30'
+                : 'bg-white/85 dark:bg-zinc-900/85 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-200 border-zinc-200/80 dark:border-zinc-800 shadow-black/5 dark:shadow-black/20'
+            }`}
+            title={isFloatingWidget ? "Switch to Standard View (Press W)" : "Switch to Floating Mini Widget (Press W)"}
+            aria-label="Toggle Floating Window Mode"
+          >
+            {isFloatingWidget ? <Maximize2 size={16} /> : <AppWindow size={16} />}
+            <span className="hidden md:inline text-[10px] uppercase tracking-wider font-black">
+              {isFloatingWidget ? 'Standard View' : 'Floating View'}
+            </span>
+          </button>
+
+          {/* Menu Trigger */}
+          <button
+            onClick={() => setShowMenuModal(true)}
+            className="p-2.5 rounded-2xl bg-white/85 dark:bg-zinc-900/85 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-200 border border-zinc-200/80 dark:border-zinc-800 shadow-md shadow-black/5 dark:shadow-black/20 backdrop-blur-md transition-all hover:scale-105 active:scale-95 flex items-center justify-center group"
+            title="Menu & Preferences (Press M)"
+            aria-label="Open Menu"
+          >
+            <Menu size={18} className="group-hover:text-emerald-500 transition-colors" />
+          </button>
+        </div>
+      </header>
 
       {/* Main Content Area */}
-      <div className="flex-1 w-full max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-12">
+      <main className={`flex-1 w-full mx-auto transition-all ${
+        isFloatingWidget ? 'max-w-xl px-2 sm:px-4 py-1 space-y-3' : 'max-w-5xl px-3 sm:px-6 py-2 sm:py-6 space-y-8'
+      }`}>
         
         {/* TAB 1: TIMER & LIVE FLOW (DEFAULT COCKPIT) */}
         {activeTab === 'timer' && (
-          <div className="space-y-10 animate-in fade-in duration-300">
-            <section className="flex flex-col items-center justify-center pt-4 sm:pt-8 pb-4 space-y-8 sm:space-y-10">
+          <div className="space-y-4 sm:space-y-6 animate-in fade-in duration-200">
+            
+            {/* UNIFIED FLOATING COCKPIT CARD (Stopwatch + Action Buttons + Progress Flow Bar) */}
+            <div className={`w-full bg-white/90 dark:bg-zinc-900/90 backdrop-blur-2xl border border-zinc-200/90 dark:border-zinc-800/90 shadow-2xl rounded-3xl transition-all ${
+              isFloatingWidget ? 'p-3.5 sm:p-5 space-y-3.5 ring-2 ring-emerald-500/20' : 'p-4 sm:p-7 space-y-4 sm:space-y-6'
+            }`}>
               
-              {/* Mission Input Field with Recent Intents Dropdown */}
+              {/* Mission Row */}
               {!activeSession ? (
-                <div className="w-full max-w-md relative group">
-                  <div className="absolute left-5 top-1/2 -translate-y-1/2 text-zinc-400 group-focus-within:text-emerald-500 transition-colors">
-                    <Target size={22} />
+                <div className="w-full relative group">
+                  <div className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400 group-focus-within:text-emerald-500 transition-colors">
+                    <Target size={18} />
                   </div>
                   <input 
                     type="text" 
                     value={currentIntent}
                     onChange={(e) => setCurrentIntent(e.target.value)}
-                    placeholder="Declare your mission"
-                    className="w-full bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-[2rem] py-5 sm:py-6 pl-14 pr-12 text-center focus:outline-none focus:ring-8 focus:ring-emerald-500/5 focus:border-emerald-500 transition-all shadow-xl text-lg sm:text-xl font-medium text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 dark:placeholder:text-zinc-600"
+                    placeholder="Declare your mission..."
+                    className="w-full bg-zinc-100/70 dark:bg-zinc-950/70 border border-zinc-200 dark:border-zinc-800 rounded-2xl py-2.5 sm:py-3 pl-11 pr-10 text-center focus:outline-none focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 transition-all text-sm sm:text-base font-semibold text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 dark:placeholder:text-zinc-600"
                   />
                   {recentIntents.length > 0 && (
                     <button
                       type="button"
                       onClick={() => setShowRecentDropdown(prev => !prev)}
-                      className="absolute right-4 top-1/2 -translate-y-1/2 p-2 rounded-xl text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 transition-colors"
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1.5 rounded-xl text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 transition-colors"
                       title="Select from recent missions"
                     >
-                      <ChevronDown size={18} />
+                      <ChevronDown size={16} />
                     </button>
                   )}
 
                   {/* Dropdown for Recent Missions */}
                   {showRecentDropdown && (
-                    <div className="absolute left-0 right-0 top-full mt-2 z-50 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl p-3 shadow-2xl space-y-1 animate-in fade-in zoom-in-95 duration-150">
+                    <div className="absolute left-0 right-0 top-full mt-2 z-50 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-2 shadow-2xl space-y-1 animate-in fade-in zoom-in-95 duration-150">
                       <p className="text-[9px] font-black uppercase tracking-widest text-zinc-400 px-3 py-1">
                         Recent Missions
                       </p>
@@ -475,7 +540,7 @@ const App: React.FC = () => {
                             setCurrentIntent(item);
                             setShowRecentDropdown(false);
                           }}
-                          className="w-full text-left px-3 py-2 rounded-xl text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors truncate"
+                          className="w-full text-left px-3 py-1.5 rounded-xl text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors truncate"
                         >
                           {item}
                         </button>
@@ -484,100 +549,130 @@ const App: React.FC = () => {
                   )}
                 </div>
               ) : (
-                <div className="w-full max-w-2xl px-4 flex flex-col items-center animate-in fade-in duration-500 select-none">
-                  <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 text-[9px] font-black uppercase tracking-widest mb-3">
-                    <Target size={12} /> Active Mission
+                <div className="w-full flex items-center justify-center animate-in fade-in duration-300">
+                  <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-2xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 max-w-full truncate">
+                    <Target size={14} className="shrink-0" />
+                    <span className="text-xs sm:text-sm font-semibold italic truncate">
+                      "{currentIntent || 'Deep Work'}"
+                    </span>
                   </div>
-                  <p className="text-2xl md:text-3xl font-medium text-zinc-900 dark:text-zinc-100 italic text-center max-w-xl leading-relaxed tracking-tight">
-                    "{currentIntent || 'Deep Work'}"
-                  </p>
                 </div>
               )}
 
-              {/* Main Timer Display */}
-              <Timer activeSession={activeSession} currentTime={currentTime} onEnd={handleEndSessionAction} />
-              
-              {/* Mode Selection Buttons */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 w-full max-w-2xl px-4">
-                <button 
-                  onClick={() => handleModeClick(SessionMode.FOCUSED)}
-                  className={`flex items-center justify-center gap-2.5 px-6 py-4 sm:py-5 rounded-[2rem] font-black uppercase tracking-widest text-[10px] sm:text-xs transition-all ${
-                    activeSession?.mode === SessionMode.FOCUSED 
-                    ? 'bg-emerald-500 text-white shadow-2xl shadow-emerald-500/40 scale-105' 
-                    : 'bg-zinc-50 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-800 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 hover:text-emerald-600 dark:hover:text-emerald-400'
-                  }`}
-                >
-                  {activeSession?.mode === SessionMode.FOCUSED ? <Square size={16} fill="currentColor" /> : <Focus size={16} />}
-                  {activeSession?.mode === SessionMode.FOCUSED ? 'End Focus' : 'Focus'}
-                </button>
-
-                <button 
-                  onClick={() => handleModeClick(SessionMode.REST)}
-                  className={`flex items-center justify-center gap-2.5 px-6 py-4 sm:py-5 rounded-[2rem] font-black uppercase tracking-widest text-[10px] sm:text-xs transition-all ${
-                    activeSession?.mode === SessionMode.REST 
-                    ? 'bg-sky-500 text-white shadow-2xl shadow-sky-500/40 scale-105' 
-                    : 'bg-zinc-50 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-800 hover:bg-sky-50 dark:hover:bg-sky-500/10 hover:text-sky-600 dark:hover:text-sky-400'
-                  }`}
-                >
-                  {activeSession?.mode === SessionMode.REST ? <Square size={16} fill="currentColor" /> : <Coffee size={16} />}
-                  {activeSession?.mode === SessionMode.REST ? 'End Rest' : 'Rest'}
-                </button>
-
-                <button 
-                  onClick={() => handleModeClick(SessionMode.DISTRACTED)}
-                  className={`flex items-center justify-center gap-2.5 px-6 py-4 sm:py-5 rounded-[2rem] font-black uppercase tracking-widest text-[10px] sm:text-xs transition-all ${
-                    activeSession?.mode === SessionMode.DISTRACTED 
-                    ? 'bg-rose-500 text-white shadow-2xl shadow-rose-500/40 scale-105' 
-                    : 'bg-zinc-50 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-800 hover:bg-rose-50 dark:hover:bg-rose-500/10 hover:text-rose-600 dark:hover:text-rose-400'
-                  }`}
-                >
-                  {activeSession?.mode === SessionMode.DISTRACTED ? <Square size={16} fill="currentColor" /> : <AlertCircle size={16} />}
-                  {activeSession?.mode === SessionMode.DISTRACTED ? 'End Distr.' : 'Distracted'}
-                </button>
-              </div>
-
-            </section>
-
-            {/* Live Block / Day Timeline Canvas */}
-            <section className="w-full space-y-4">
-              <Timeline 
-                sessions={sessions} 
+              {/* Main Stopwatch Timer */}
+              <Timer 
                 activeSession={activeSession} 
                 currentTime={currentTime} 
-                lastResetTime={lastResetTime}
-                dayResetTime={dayResetTime}
-                viewMode={timelineViewMode}
-                onToggleViewMode={() => setTimelineViewMode(prev => prev === 'block' ? 'day' : 'block')}
+                onEnd={handleEndSessionAction}
+                compact={isFloatingWidget} 
               />
-            </section>
+              
+              {/* 3 Action Buttons in 1 Row (Focus, Rest, Distracted) */}
+              <div className="grid grid-cols-3 gap-2 sm:gap-3 w-full">
+                {/* Focus Button */}
+                <button 
+                  onClick={() => handleModeClick(SessionMode.FOCUSED)}
+                  className={`flex items-center justify-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-2.5 sm:py-3.5 rounded-2xl font-black uppercase tracking-wider text-[10px] sm:text-xs transition-all active:scale-95 ${
+                    activeSession?.mode === SessionMode.FOCUSED 
+                    ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/40 ring-2 ring-emerald-400 scale-[1.02]' 
+                    : 'bg-zinc-100 dark:bg-zinc-800/90 text-zinc-700 dark:text-zinc-300 border border-zinc-200/80 dark:border-zinc-700/80 hover:bg-emerald-500/15 hover:text-emerald-600 dark:hover:text-emerald-400 hover:border-emerald-500/30'
+                  }`}
+                  title="Focus (Press 1 or F)"
+                >
+                  {activeSession?.mode === SessionMode.FOCUSED ? <Square size={14} fill="currentColor" /> : <Focus size={14} />}
+                  <span>{activeSession?.mode === SessionMode.FOCUSED ? 'End Focus' : 'Focus'}</span>
+                </button>
 
-            {/* Today's All Session Logs Section */}
-            <section className="w-full space-y-4 pt-6 border-t border-zinc-100 dark:border-zinc-800/80">
-              <div className="px-1">
-                <h3 className="text-base font-black uppercase tracking-wider text-zinc-900 dark:text-white">
-                  Today's Session Logs
-                </h3>
-                <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-400 mt-0.5">
-                  Continuous records for the active day ({formatVirtualDayKey(Date.now(), dayResetTime)})
-                </p>
+                {/* Rest Button */}
+                <button 
+                  onClick={() => handleModeClick(SessionMode.REST)}
+                  className={`flex items-center justify-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-2.5 sm:py-3.5 rounded-2xl font-black uppercase tracking-wider text-[10px] sm:text-xs transition-all active:scale-95 ${
+                    activeSession?.mode === SessionMode.REST 
+                    ? 'bg-sky-500 text-white shadow-lg shadow-sky-500/40 ring-2 ring-sky-400 scale-[1.02]' 
+                    : 'bg-zinc-100 dark:bg-zinc-800/90 text-zinc-700 dark:text-zinc-300 border border-zinc-200/80 dark:border-zinc-700/80 hover:bg-sky-500/15 hover:text-sky-600 dark:hover:text-sky-400 hover:border-sky-500/30'
+                  }`}
+                  title="Rest (Press 2 or R)"
+                >
+                  {activeSession?.mode === SessionMode.REST ? <Square size={14} fill="currentColor" /> : <Coffee size={14} />}
+                  <span>{activeSession?.mode === SessionMode.REST ? 'End Rest' : 'Rest'}</span>
+                </button>
+
+                {/* Distracted Button */}
+                <button 
+                  onClick={() => handleModeClick(SessionMode.DISTRACTED)}
+                  className={`flex items-center justify-center gap-1.5 sm:gap-2 px-2 sm:px-4 py-2.5 sm:py-3.5 rounded-2xl font-black uppercase tracking-wider text-[10px] sm:text-xs transition-all active:scale-95 ${
+                    activeSession?.mode === SessionMode.DISTRACTED 
+                    ? 'bg-rose-500 text-white shadow-lg shadow-rose-500/40 ring-2 ring-rose-400 scale-[1.02]' 
+                    : 'bg-zinc-100 dark:bg-zinc-800/90 text-zinc-700 dark:text-zinc-300 border border-zinc-200/80 dark:border-zinc-700/80 hover:bg-rose-500/15 hover:text-rose-600 dark:hover:text-rose-400 hover:border-rose-500/30'
+                  }`}
+                  title="Distracted (Press 3 or D)"
+                >
+                  {activeSession?.mode === SessionMode.DISTRACTED ? <Square size={14} fill="currentColor" /> : <AlertCircle size={14} />}
+                  <span>{activeSession?.mode === SessionMode.DISTRACTED ? 'End Distr.' : 'Distracted'}</span>
+                </button>
               </div>
 
-              <LogTable 
-                sessions={sessions}
-                activeSession={activeSession}
-                currentTime={currentTime}
-                dayResetTime={dayResetTime}
-                onEditSession={(session) => {
-                  setEditingSession(session);
-                  setShowManualModal(true);
-                }}
-                onDeleteSession={handleDeleteSession}
-                onAddNewSession={() => {
-                  setEditingSession(null);
-                  setShowManualModal(true);
-                }}
-              />
-            </section>
+              {/* Progress Flow Bar (Timeline Canvas) directly in Cockpit */}
+              <div className="w-full pt-1">
+                <Timeline 
+                  sessions={sessions} 
+                  activeSession={activeSession} 
+                  currentTime={currentTime} 
+                  lastResetTime={lastResetTime}
+                  dayResetTime={dayResetTime}
+                  viewMode={timelineViewMode}
+                  onToggleViewMode={() => setTimelineViewMode(prev => prev === 'block' ? 'day' : 'block')}
+                  compact={isFloatingWidget}
+                />
+              </div>
+            </div>
+
+            {/* Today's All Session Logs Section */}
+            <div className="w-full space-y-3 pt-2">
+              <div className="flex items-center justify-between px-1">
+                <div>
+                  <h3 className="text-sm sm:text-base font-black uppercase tracking-wider text-zinc-900 dark:text-white flex items-center gap-2">
+                    Today's Session Logs
+                    <span className="text-[9px] font-mono font-bold px-2 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-700">
+                      {todaySessionsCount} {todaySessionsCount === 1 ? 'entry' : 'entries'}
+                    </span>
+                  </h3>
+                  <p className="text-[9px] font-bold uppercase tracking-widest text-zinc-400 mt-0.5 hidden sm:block">
+                    Active day cycle resets at {dayResetTime}
+                  </p>
+                </div>
+
+                {isFloatingWidget && (
+                  <button
+                    onClick={() => setShowTodayLogs(prev => !prev)}
+                    className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-xl bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-600 dark:text-zinc-300 transition-colors"
+                  >
+                    <span>{showTodayLogs ? 'Hide Logs' : 'Show Logs'}</span>
+                    {showTodayLogs ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                  </button>
+                )}
+              </div>
+
+              {(!isFloatingWidget || showTodayLogs) && (
+                <div className="animate-in fade-in duration-200">
+                  <LogTable 
+                    sessions={sessions}
+                    activeSession={activeSession}
+                    currentTime={currentTime}
+                    dayResetTime={dayResetTime}
+                    onEditSession={(session) => {
+                      setEditingSession(session);
+                      setShowManualModal(true);
+                    }}
+                    onDeleteSession={handleDeleteSession}
+                    onAddNewSession={() => {
+                      setEditingSession(null);
+                      setShowManualModal(true);
+                    }}
+                  />
+                </div>
+              )}
+            </div>
 
           </div>
         )}
@@ -619,7 +714,7 @@ const App: React.FC = () => {
           </section>
         )}
 
-      </div>
+      </main>
 
       {/* MODAL 1: DISTRACTION REFLECTION MODAL */}
       {showReflectionModal && (
@@ -748,6 +843,7 @@ const App: React.FC = () => {
                 { key: 'F or 1', desc: 'Start or toggle Focus mode' },
                 { key: 'R or 2', desc: 'Start or toggle Rest mode' },
                 { key: 'D or 3', desc: 'Start or toggle Distracted mode' },
+                { key: 'W', desc: 'Toggle Floating Mini Window mode' },
                 { key: 'Space / Esc', desc: 'End current active session' },
                 { key: 'T', desc: 'Switch to Timer view' },
                 { key: 'A', desc: 'Switch to Analytics dashboard' },

@@ -11,6 +11,7 @@ interface TimelineProps {
   dayResetTime: string;
   viewMode: 'block' | 'day';
   onToggleViewMode?: () => void;
+  compact?: boolean;
 }
 
 interface TooltipData {
@@ -28,6 +29,7 @@ const Timeline: React.FC<TimelineProps> = ({
   dayResetTime,
   viewMode,
   onToggleViewMode,
+  compact = false,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [tooltip, setTooltip] = useState<TooltipData | null>(null);
@@ -287,16 +289,16 @@ const Timeline: React.FC<TimelineProps> = ({
     new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
   return (
-    <div className="relative group space-y-2.5">
+    <div className={`relative group ${compact ? 'space-y-1.5' : 'space-y-2.5'}`}>
       {/* Header Info: Span & Mode Breakdown */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-1">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 px-1">
         <div className="flex items-center gap-2">
-          <span className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-900 dark:text-white">
-            Daily Flow Progress
+          <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-[0.2em] text-zinc-900 dark:text-white">
+            Daily Flow Bar
           </span>
           {bounds.hasData && (
             <span className="text-[9px] font-mono font-bold text-zinc-500 dark:text-zinc-400 bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 rounded-lg border border-zinc-200/50 dark:border-zinc-700/50">
-              {formatClock(bounds.start)} → Now ({formatClock(currentTime)})
+              {formatClock(bounds.start)} → Now
             </span>
           )}
         </div>
@@ -331,7 +333,7 @@ const Timeline: React.FC<TimelineProps> = ({
       </div>
 
       {/* Progress Canvas Bar */}
-      <div className="w-full bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 overflow-hidden rounded-3xl shadow-inner h-14 sm:h-16 relative">
+      <div className={`w-full bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 overflow-hidden rounded-2xl sm:rounded-3xl shadow-inner relative transition-all ${compact ? 'h-10 sm:h-12' : 'h-12 sm:h-14'}`}>
         <canvas
           ref={canvasRef}
           className="w-full h-full block cursor-crosshair transition-opacity hover:opacity-90"
@@ -342,10 +344,10 @@ const Timeline: React.FC<TimelineProps> = ({
 
       {/* Start / End Time Axis Indicators */}
       {bounds.hasData && (
-        <div className="flex justify-between items-center px-2 text-[9px] font-mono font-bold text-zinc-400 dark:text-zinc-500">
-          <span>First Entry: {formatClock(bounds.start)}</span>
-          <span className="text-[8px] uppercase tracking-widest font-black">
-            Total Span: {formatDuration(bounds.total)}
+        <div className="flex justify-between items-center px-1 text-[8px] sm:text-[9px] font-mono font-bold text-zinc-400 dark:text-zinc-500">
+          <span>Start: {formatClock(bounds.start)}</span>
+          <span className="text-[8px] uppercase tracking-widest font-black hidden sm:inline">
+            Span: {formatDuration(bounds.total)}
           </span>
           <span>Now: {formatClock(currentTime)}</span>
         </div>
