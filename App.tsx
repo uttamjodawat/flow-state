@@ -42,38 +42,57 @@ const App: React.FC = () => {
   // Active Tab state
   const [activeTab, setActiveTab] = useState<ActiveTab>('timer');
 
+  // Helper for safe JSON parsing
+  const safeGetJson = <T,>(key: string, fallback: T): T => {
+    try {
+      const saved = localStorage.getItem(key);
+      return saved ? JSON.parse(saved) : fallback;
+    } catch {
+      return fallback;
+    }
+  };
+
   // Sessions state
   const [sessions, setSessions] = useState<Session[]>(() => {
-    const saved = localStorage.getItem(SESSION_STORAGE_KEY);
-    return saved ? JSON.parse(saved) : [];
+    return safeGetJson<Session[]>(SESSION_STORAGE_KEY, []);
   });
 
   // Day Reset Time setting (e.g. "04:00")
   const [dayResetTime, setDayResetTime] = useState<string>(() => {
-    const saved = localStorage.getItem(DAY_RESET_TIME_STORAGE_KEY);
-    return saved || '04:00';
+    try {
+      return localStorage.getItem(DAY_RESET_TIME_STORAGE_KEY) || '04:00';
+    } catch {
+      return '04:00';
+    }
   });
 
   // Manual Block Reset Time
   const [lastResetTime, setLastResetTime] = useState<number>(() => {
-    const saved = localStorage.getItem(RESET_STORAGE_KEY);
-    return saved ? parseInt(saved, 10) : new Date().setHours(0, 0, 0, 0);
+    try {
+      const saved = localStorage.getItem(RESET_STORAGE_KEY);
+      return saved ? parseInt(saved, 10) : new Date().setHours(0, 0, 0, 0);
+    } catch {
+      return new Date().setHours(0, 0, 0, 0);
+    }
   });
 
   // Sound preference
   const [soundEnabled, setSoundEnabled] = useState<boolean>(() => {
-    return localStorage.getItem(SOUND_ENABLED_STORAGE_KEY) !== 'false';
+    try {
+      return localStorage.getItem(SOUND_ENABLED_STORAGE_KEY) !== 'false';
+    } catch {
+      return true;
+    }
   });
 
   // Recent Mission Intents
   const [recentIntents, setRecentIntents] = useState<string[]>(() => {
-    const saved = localStorage.getItem(RECENT_INTENTS_STORAGE_KEY);
-    return saved ? JSON.parse(saved) : [
+    return safeGetJson<string[]>(RECENT_INTENTS_STORAGE_KEY, [
       'Deep Work & Architecture',
       'Code Review & Refactoring',
       'Product Strategy & Roadmap',
       'Documentation & Planning'
-    ];
+    ]);
   });
 
   // Active Session & Timer state

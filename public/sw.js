@@ -1,27 +1,26 @@
-const CACHE_NAME = 'flowstate-pwa-v6';
+const CACHE_NAME = 'flowstate-pwa-v7';
 
 const PRECACHE_ASSETS = [
   './',
   './index.html',
   './manifest.json',
   './icon.svg',
-  './404.html',
   'https://cdn.tailwindcss.com'
 ];
 
-// Install: Cache critical app shell
+// Install: Cache critical entry assets
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
       return cache.addAll(PRECACHE_ASSETS).catch((err) => {
-        console.warn('Pre-caching assets failed, continuing:', err);
+        console.warn('Pre-cache non-fatal warning:', err);
       });
     })
   );
   self.skipWaiting();
 });
 
-// Activate: Remove stale caches and claim clients immediately
+// Activate: Clean up previous cache versions and claim clients
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) => {
@@ -33,47 +32,63 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
-// Fetch: Handle navigation and dynamic resources
+// Fetch: Robust Offline-First and Cache-First Strategy
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
 
-  // Handle SPA navigation requests (PWA launcher / direct link / page reload)
+  const url = new URL(event.request.url);
+
+  // 1. Navigation requests (SPA page load / PWA standalone launch)
   if (event.request.mode === 'navigate') {
     event.respondWith(
       fetch(event.request)
-        .then((response) => {
-          if (response && response.status === 200) {
-            const copy = response.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+        .then((networkResponse) => {
+          if (networkResponse && networkResponse.status === 200) {
+            const clone = networkResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
           }
-          return response;
+          return networkResponse;
         })
         .catch(async () => {
-          // If offline or request fails, serve cached index.html or 404.html
           const cache = await caches.open(CACHE_NAME);
           const cached =
             (await cache.match(event.request)) ||
             (await cache.match('./index.html')) ||
-            (await cache.match('./404.html')) ||
             (await cache.match('index.html')) ||
             (await cache.match('./')) ||
             (await cache.match(self.registration.scope));
           if (cached) return cached;
-          return new Response('Offline', { status: 200, headers: { 'Content-Type': 'text/html' } });
+          return new Response('FlowState App is offline.', {
+            status: 200,
+            headers: { 'Content-Type': 'text/html' }
+          });
         })
     );
     return;
   }
 
-  // Handle static assets & API fetches with Stale-While-Revalidate / Cache First
+  // 2. Static Assets (JS scripts, stylesheets, fonts, icons)
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
-      const fetchPromise = fetch(event.request)
+      if (cachedResponse) {
+        // Fetch fresh copy in background to update cache
+        fetch(event.request)
+          .then((networkResponse) => {
+            if (networkResponse && networkResponse.status === 200) {
+              caches.open(CACHE_NAME).then((cache) => cache.put(event.request, networkResponse));
+            }
+          })
+          .catch(() => {});
+        return cachedResponse;
+      }
+
+      // Not in cache, fetch from network and store in cache
+      return fetch(event.request)
         .then((networkResponse) => {
           if (
             networkResponse &&
             networkResponse.status === 200 &&
-            event.request.url.startsWith('http')
+            (url.protocol === 'http:' || url.protocol === 'https:')
           ) {
             const responseClone = networkResponse.clone();
             caches.open(CACHE_NAME).then((cache) => {
@@ -82,9 +97,9 @@ self.addEventListener('fetch', (event) => {
           }
           return networkResponse;
         })
-        .catch(() => cachedResponse);
-
-      return cachedResponse || fetchPromise;
+        .catch((err) => {
+          return cachedResponse || Promise.reject(err);
+        });
     })
   );
 });

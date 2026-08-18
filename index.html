@@ -5,6 +5,17 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>FlowState Tracker</title>
   
+  <script>
+    // Ensure trailing slash for GitHub Pages repo subdirectories (e.g. /flow-state -> /flow-state/)
+    // so relative bundle assets (./assets/...) resolve accurately without dropping the repository folder
+    (function() {
+      var path = window.location.pathname;
+      if (path && !path.endsWith('/') && !path.split('/').pop().includes('.')) {
+        window.location.replace(path + '/' + window.location.search + window.location.hash);
+      }
+    })();
+  </script>
+
   <!-- PWA Meta Tags & Icons -->
   <meta name="theme-color" content="#10b981">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -14,6 +25,7 @@
   <link rel="apple-touch-icon" href="./icon.svg">
   <link rel="manifest" href="./manifest.json">
 
+  <!-- Core Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
@@ -31,9 +43,17 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  
   <style>
+    html, body {
+      background-color: #ffffff;
+      color: #18181b;
+      min-height: 100%;
+      margin: 0;
+      padding: 0;
+    }
     body {
-      font-family: 'Inter', sans-serif;
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
       transition: background-color 0.3s ease, color 0.3s ease;
       overscroll-behavior-y: none;
       -webkit-tap-highlight-color: transparent;
@@ -60,13 +80,13 @@
   <script type="module" src="./index.tsx"></script>
   <script>
     if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js')
-          .then(reg => {
-            console.log('FlowState ServiceWorker registered:', reg.scope);
+      window.addEventListener('load', function() {
+        navigator.serviceWorker.register('./sw.js', { scope: './' })
+          .then(function(reg) {
+            console.log('FlowState ServiceWorker active at:', reg.scope);
           })
-          .catch(err => {
-            console.warn('SW registration failed:', err);
+          .catch(function(err) {
+            console.warn('SW registration info:', err);
           });
       });
     }
