@@ -11,7 +11,6 @@ interface TimelineProps {
   dayResetTime: string;
   viewMode: 'block' | 'day';
   onToggleViewMode?: () => void;
-  compact?: boolean;
 }
 
 interface TooltipData {
@@ -29,7 +28,6 @@ const Timeline: React.FC<TimelineProps> = ({
   dayResetTime,
   viewMode,
   onToggleViewMode,
-  compact = false,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [tooltip, setTooltip] = useState<TooltipData | null>(null);
@@ -289,7 +287,7 @@ const Timeline: React.FC<TimelineProps> = ({
     new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
   return (
-    <div className={`relative group ${compact ? 'space-y-1.5' : 'space-y-2.5'}`}>
+    <div className="relative group space-y-2.5">
       {/* Header Info: Span & Mode Breakdown */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 px-1">
         <div className="flex items-center gap-2">
@@ -333,7 +331,7 @@ const Timeline: React.FC<TimelineProps> = ({
       </div>
 
       {/* Progress Canvas Bar */}
-      <div className={`w-full bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 overflow-hidden rounded-2xl sm:rounded-3xl shadow-inner relative transition-all ${compact ? 'h-10 sm:h-12' : 'h-12 sm:h-14'}`}>
+      <div className="w-full bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 overflow-hidden rounded-2xl sm:rounded-3xl shadow-inner relative transition-all h-12 sm:h-14">
         <canvas
           ref={canvasRef}
           className="w-full h-full block cursor-crosshair transition-opacity hover:opacity-90"
