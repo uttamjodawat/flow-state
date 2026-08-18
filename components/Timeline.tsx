@@ -36,22 +36,29 @@ const Timeline: React.FC<TimelineProps> = ({
     return getVirtualDayStart(currentTime, dayResetTime);
   }, [currentTime, dayResetTime]);
 
-  // Minimum boundary timestamp based on viewMode
-  const filterBoundary = useMemo(() => {
-    return viewMode === 'block' ? lastResetTime : virtualDayStart;
-  }, [viewMode, lastResetTime, virtualDayStart]);
-
-  // Filter and combine sessions
+  // Filter and combine sessions reactive to all edits and new additions
   const allSessionsSorted = useMemo(() => {
     const list = sessions
-      .filter(s => s.startTime >= filterBoundary)
-      .map(s => ({ ...s }));
+      .filter(s => {
+        if (viewMode === 'block') {
+          return s.startTime >= lastResetTime;
+        }
+        return getVirtualDayStart(s.startTime, dayResetTime) === virtualDayStart || s.startTime >= virtualDayStart;
+      })
+      .map(s => ({
+        ...s,
+        endTime: s.endTime || (s.duration ? s.startTime + s.duration : undefined),
+      }));
 
     if (activeSession) {
-      list.push({ ...activeSession, endTime: currentTime, duration: currentTime - activeSession.startTime });
+      list.push({ 
+        ...activeSession, 
+        endTime: currentTime, 
+        duration: currentTime - activeSession.startTime 
+      });
     }
     return list.sort((a, b) => a.startTime - b.startTime);
-  }, [sessions, activeSession, currentTime, filterBoundary]);
+  }, [sessions, activeSession, currentTime, viewMode, lastResetTime, virtualDayStart, dayResetTime]);
 
   // Bounds: Start strictly at the first entry of the day (or block), End at current time (now).
   const bounds = useMemo(() => {
@@ -83,7 +90,7 @@ const Timeline: React.FC<TimelineProps> = ({
 
     // Gaps between consecutive sessions
     for (let i = 0; i < allSessionsSorted.length - 1; i++) {
-      const currentEnd = allSessionsSorted[i].endTime || allSessionsSorted[i].startTime;
+      const currentEnd = allSessionsSorted[i].endTime || (allSessionsSorted[i].startTime + (allSessionsSorted[i].duration || 0));
       const nextStart = allSessionsSorted[i + 1].startTime;
       if (nextStart - currentEnd > 2000) {
         gaps.push({ start: currentEnd, end: nextStart, duration: nextStart - currentEnd });
@@ -93,7 +100,7 @@ const Timeline: React.FC<TimelineProps> = ({
     // Trailing untracked gap from last completed session to currentTime (when no active session)
     if (!activeSession && allSessionsSorted.length > 0) {
       const lastSession = allSessionsSorted[allSessionsSorted.length - 1];
-      const lastEnd = lastSession.endTime || lastSession.startTime;
+      const lastEnd = lastSession.endTime || (lastSession.startTime + (lastSession.duration || 0));
       if (currentTime - lastEnd > 2000) {
         gaps.push({ start: lastEnd, end: currentTime, duration: currentTime - lastEnd });
       }
@@ -109,7 +116,7 @@ const Timeline: React.FC<TimelineProps> = ({
     let dist = 0;
 
     allSessionsSorted.forEach(s => {
-      const d = (s.endTime || currentTime) - s.startTime;
+      const d = s.duration || ((s.endTime || currentTime) - s.startTime);
       if (s.mode === SessionMode.FOCUSED) focus += d;
       else if (s.mode === SessionMode.REST) rest += d;
       else if (s.mode === SessionMode.DISTRACTED) dist += d;
@@ -141,24 +148,37 @@ const Timeline: React.FC<TimelineProps> = ({
 
     const isDark = document.documentElement.classList.contains('dark');
 
-    // Draw Background Canvas (Untracked void pattern)
-    ctx.fillStyle = isDark ? '#18181b' : '#f4f4f5';
-    ctx.fillRect(0, 0, w, h);
-
-    // Draw Untracked Idle Gaps with subtle hatching
+    // 1. Draw Untracked Gaps (Void/Idle blocks)
     idleGaps.forEach(gap => {
-      const x = ((gap.start - bounds.start) / bounds.total) * w;
-      const width = ((gap.end - bounds.start) / bounds.total) * w - x;
+      const gapStart = Math.max(gap.start, bounds.start);
+      const gapEnd = Math.min(gap.end, bounds.end);
+      if (gapEnd <= gapStart) return;
+
+      const x = ((gapStart - bounds.start) / bounds.total) * w;
+      const width = ((gapEnd - bounds.start) / bounds.total) * w - x;
+
       if (width > 0) {
-        ctx.fillStyle = isDark ? 'rgba(39, 39, 42, 0.9)' : 'rgba(228, 228, 231, 0.9)';
-        ctx.fillRect(x, 0, Math.max(1, width), h);
+        // Subtle hatched / diagonal-striped pattern for untracked void
+        ctx.fillStyle = isDark ? 'rgba(39, 39, 42, 0.65)' : 'rgba(228, 228, 231, 0.65)';
+        ctx.fillRect(x, 0, width, h);
+
+        // Pattern stripes
+        ctx.strokeStyle = isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.04)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        const step = 8;
+        for (let sx = x - h; sx < x + width; sx += step) {
+          ctx.moveTo(sx, h);
+          ctx.lineTo(sx + h, 0);
+        }
+        ctx.stroke();
       }
     });
 
-    // Draw Tracked Sessions
+    // 2. Draw Tracked Sessions
     allSessionsSorted.forEach(session => {
       const sessionStart = Math.max(session.startTime, bounds.start);
-      const sessionEnd = session.endTime || currentTime;
+      const sessionEnd = session.endTime || (session.startTime + (session.duration || 0)) || currentTime;
       if (sessionEnd < bounds.start) return;
 
       const x = ((sessionStart - bounds.start) / bounds.total) * w;
@@ -169,7 +189,7 @@ const Timeline: React.FC<TimelineProps> = ({
         ctx.fillRect(x, 0, Math.max(2, width), h);
 
         // Active session animated pulse overlay
-        if (!session.endTime) {
+        if (!session.endTime || (activeSession && session.id === activeSession.id)) {
           const pulse = (Math.sin(Date.now() / 250) + 1) / 2;
           ctx.fillStyle = `rgba(255, 255, 255, ${0.15 + pulse * 0.25})`;
           ctx.fillRect(x, 0, width, h);
@@ -177,7 +197,7 @@ const Timeline: React.FC<TimelineProps> = ({
       }
     });
 
-    // Time markers / tick lines
+    // 3. Time markers / tick lines
     const durationMin = bounds.total / (1000 * 60);
     let interval = 1000 * 60 * 15; // 15 min default
     if (durationMin <= 30) interval = 1000 * 60 * 5; // 5 min
@@ -194,14 +214,14 @@ const Timeline: React.FC<TimelineProps> = ({
       currentMarker += interval;
     }
 
-    // Empty state text if no sessions yet today
+    // 4. Empty state text if no sessions yet today
     if (allSessionsSorted.length === 0) {
       ctx.fillStyle = isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)';
       ctx.font = '900 9px Inter, sans-serif';
       ctx.textAlign = 'center';
       ctx.fillText('NO SESSIONS TODAY — START FOCUS TO BEGIN TIMELINE', w / 2, h / 2 + 3);
     }
-  }, [allSessionsSorted, idleGaps, bounds, currentTime]);
+  }, [allSessionsSorted, idleGaps, bounds, currentTime, activeSession]);
 
   useEffect(() => {
     draw();
@@ -219,7 +239,7 @@ const Timeline: React.FC<TimelineProps> = ({
     return () => {
       if (frameId) cancelAnimationFrame(frameId);
     };
-  }, [draw, activeSession]);
+  }, [draw, activeSession, sessions]);
 
   // Handle window and container resize smoothly
   useEffect(() => {
@@ -237,7 +257,7 @@ const Timeline: React.FC<TimelineProps> = ({
     const hoverTime = bounds.start + (x / rect.width) * bounds.total;
 
     const session = allSessionsSorted.find(
-      s => hoverTime >= s.startTime && hoverTime <= (s.endTime || currentTime)
+      s => hoverTime >= s.startTime && hoverTime <= (s.endTime || (s.startTime + (s.duration || 0)) || currentTime)
     );
     if (session) {
       setTooltip({ x: e.clientX, y: e.clientY, session });
@@ -249,7 +269,13 @@ const Timeline: React.FC<TimelineProps> = ({
       setTooltip({
         x: e.clientX,
         y: e.clientY,
-        session: { id: 'idle', mode: SessionMode.IDLE, startTime: gap.start, endTime: gap.end },
+        session: { 
+          id: `untracked-hover-${gap.start}`, 
+          mode: SessionMode.IDLE, 
+          startTime: gap.start, 
+          endTime: gap.end,
+          duration: gap.end - gap.start,
+        },
         isIdle: true,
       });
       return;
@@ -338,7 +364,9 @@ const Timeline: React.FC<TimelineProps> = ({
           <div className="flex items-center justify-between pb-2 border-b border-zinc-100 dark:border-zinc-800">
             <div className="flex items-center gap-2 font-black tracking-widest uppercase text-[9px]">
               <div className={`w-2.5 h-2.5 rounded-full ${MODE_COLORS[tooltip.session.mode].bg}`} />
-              <span className={MODE_COLORS[tooltip.session.mode].text}>{tooltip.session.mode}</span>
+              <span className={MODE_COLORS[tooltip.session.mode].text}>
+                {tooltip.isIdle ? 'Untracked Gap' : tooltip.session.mode}
+              </span>
             </div>
           </div>
 
@@ -353,7 +381,7 @@ const Timeline: React.FC<TimelineProps> = ({
             <div className="flex justify-between items-center">
               <span className="text-zinc-400 uppercase tracking-widest font-black text-[8px]">Duration</span>
               <span className="mono font-black text-zinc-900 dark:text-zinc-100 text-xs">
-                {formatDuration((tooltip.session.endTime || currentTime) - tooltip.session.startTime)}
+                {formatDuration(tooltip.session.duration || (tooltip.session.endTime || currentTime) - tooltip.session.startTime)}
               </span>
             </div>
           </div>

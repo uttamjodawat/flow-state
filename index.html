@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -6,13 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>FlowState Tracker</title>
   
-  <!-- PWA Meta Tags -->
+  <!-- PWA Meta Tags & Icons -->
   <meta name="theme-color" content="#10b981">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="FlowState">
-  <link rel="apple-touch-icon" href="https://cdn.jsdelivr.net/gh/twitter/twemoji@latest/assets/svg/1f340.svg">
-  <link rel="manifest" href="manifest.json">
+  <link rel="icon" type="image/svg+xml" href="./icon.svg">
+  <link rel="apple-touch-icon" href="./icon.svg">
+  <link rel="manifest" href="./manifest.json">
 
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
@@ -61,11 +61,13 @@
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js').then(reg => {
-          console.log('FlowState ServiceWorker registered');
-        }).catch(err => {
-          console.log('SW registration failed: ', err);
-        });
+        navigator.serviceWorker.register('./sw.js')
+          .then(reg => {
+            console.log('FlowState ServiceWorker registered:', reg.scope);
+          })
+          .catch(err => {
+            console.warn('SW registration failed:', err);
+          });
       });
     }
   </script>

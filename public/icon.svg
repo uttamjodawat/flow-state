@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <linearGradient id="flowGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#34d399" />
+      <stop offset="100%" stop-color="#059669" />
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="16" stdDeviation="24" flood-color="#059669" flood-opacity="0.25" />
+    </filter>
+  </defs>
+  
+  <!-- Rounded App Tile Background -->
+  <rect width="512" height="512" rx="128" fill="#ffffff" />
+  <rect x="24" y="24" width="464" height="464" rx="112" fill="url(#flowGrad)" filter="url(#shadow)" />
+  
+  <!-- Centered Four-Leaf Flow Clover / Zen Petals Symbol -->
+  <g transform="translate(256, 256)" fill="#ffffff">
+    <!-- Top Leaf -->
+    <path d="M 0,-30 C -60,-120 0,-180 0,-180 C 0,-180 60,-120 0,-30 Z" opacity="0.95" />
+    <!-- Bottom Leaf -->
+    <path d="M 0,30 C 60,120 0,180 0,180 C 0,180 -60,120 0,30 Z" opacity="0.95" />
+    <!-- Left Leaf -->
+    <path d="M -30,0 C -120,60 -180,0 -180,0 C -180,0 -120,-60 -30,0 Z" opacity="0.95" />
+    <!-- Right Leaf -->
+    <path d="M 30,0 C 120,-60 180,0 180,0 C 180,0 120,60 30,0 Z" opacity="0.95" />
+    <!-- Center Core Dot -->
+    <circle cx="0" cy="0" r="22" fill="#ffffff" />
+  </g>
+</svg>

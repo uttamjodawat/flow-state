@@ -5,16 +5,14 @@ import {
   Calendar, 
   Clock, 
   ChevronDown, 
-  ChevronRight, 
   Search, 
-  Filter, 
   PlusCircle, 
   Edit3, 
   Trash2, 
-  Sparkles, 
   Zap, 
   Coffee, 
-  AlertCircle 
+  AlertCircle,
+  Ghost
 } from 'lucide-react';
 import { 
   getVirtualDayStart, 
@@ -31,6 +29,16 @@ interface LogTableProps {
 }
 
 type DateFilterMode = 'today' | 'week' | 'all';
+
+interface DayGroupData {
+  dateTimestamp: number;
+  sessions: Session[];
+  allEntries: Session[];
+  totalFocus: number;
+  totalRest: number;
+  totalDist: number;
+  totalUntracked: number;
+}
 
 const LogTable: React.FC<LogTableProps> = ({
   sessions,
@@ -49,36 +57,13 @@ const LogTable: React.FC<LogTableProps> = ({
   const currentDayStart = useMemo(() => getVirtualDayStart(Date.now(), dayResetTime), [dayResetTime]);
   const currentDayKey = useMemo(() => formatVirtualDayKey(Date.now(), dayResetTime), [dayResetTime]);
 
-  // Group and filter sessions
+  // Group and compute tracked and untracked sessions per day
   const groupedData = useMemo(() => {
-    const groups: Record<string, { dateTimestamp: number; sessions: Session[]; totalFocus: number; totalRest: number; totalDist: number }> = {};
+    const groups: Record<string, DayGroupData> = {};
+    const now = Date.now();
 
-    const filtered = sessions.filter(session => {
-      // Mode filter
-      if (modeFilter !== 'ALL' && session.mode !== modeFilter) return false;
-
-      // Date range filter
-      if (dateFilter === 'today') {
-        const sessionDayStart = getVirtualDayStart(session.startTime, dayResetTime);
-        if (sessionDayStart !== currentDayStart) return false;
-      } else if (dateFilter === 'week') {
-        const sevenDaysAgo = currentDayStart - 6 * 24 * 60 * 60 * 1000;
-        if (session.startTime < sevenDaysAgo) return false;
-      }
-
-      // Search query filter
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase();
-        const intentMatch = session.intent?.toLowerCase().includes(q);
-        const reflectionMatch = session.reflection?.toLowerCase().includes(q);
-        const modeMatch = session.mode.toLowerCase().includes(q);
-        if (!intentMatch && !reflectionMatch && !modeMatch) return false;
-      }
-
-      return true;
-    });
-
-    filtered.forEach(session => {
+    // 1. Group all existing tracked sessions by virtual day
+    sessions.forEach(session => {
       const dayKey = formatVirtualDayKey(session.startTime, dayResetTime);
       const dayStart = getVirtualDayStart(session.startTime, dayResetTime);
 
@@ -86,9 +71,11 @@ const LogTable: React.FC<LogTableProps> = ({
         groups[dayKey] = {
           dateTimestamp: dayStart,
           sessions: [],
+          allEntries: [],
           totalFocus: 0,
           totalRest: 0,
           totalDist: 0,
+          totalUntracked: 0,
         };
       }
 
@@ -99,9 +86,98 @@ const LogTable: React.FC<LogTableProps> = ({
       else if (session.mode === SessionMode.DISTRACTED) groups[dayKey].totalDist += duration;
     });
 
-    // Sort days descending
-    return Object.entries(groups).sort((a, b) => b[1].dateTimestamp - a[1].dateTimestamp);
-  }, [sessions, dayResetTime, currentDayStart, dateFilter, modeFilter, searchQuery]);
+    // If today has no sessions yet, ensure today exists if in 'today' or 'week' filter
+    if (!groups[currentDayKey] && dateFilter !== 'all') {
+      groups[currentDayKey] = {
+        dateTimestamp: currentDayStart,
+        sessions: [],
+        allEntries: [],
+        totalFocus: 0,
+        totalRest: 0,
+        totalDist: 0,
+        totalUntracked: 0,
+      };
+    }
+
+    // 2. For each day group, compute untracked gaps and build allEntries
+    Object.entries(groups).forEach(([dayKey, dayData]) => {
+      const daySorted = [...dayData.sessions].sort((a, b) => a.startTime - b.startTime);
+      const untrackedGaps: Session[] = [];
+
+      // Gaps between consecutive sessions (at least 60 seconds)
+      for (let i = 0; i < daySorted.length - 1; i++) {
+        const currentEnd = daySorted[i].endTime || (daySorted[i].startTime + (daySorted[i].duration || 0));
+        const nextStart = daySorted[i + 1].startTime;
+        if (nextStart - currentEnd >= 60 * 1000) {
+          untrackedGaps.push({
+            id: `untracked-${dayKey}-${currentEnd}`,
+            mode: SessionMode.IDLE,
+            startTime: currentEnd,
+            endTime: nextStart,
+            duration: nextStart - currentEnd,
+          });
+        }
+      }
+
+      // Trailing untracked gap for today up to now
+      if (dayKey === currentDayKey && daySorted.length > 0) {
+        const last = daySorted[daySorted.length - 1];
+        const lastEnd = last.endTime || (last.startTime + (last.duration || 0));
+        if (now - lastEnd >= 60 * 1000) {
+          untrackedGaps.push({
+            id: `untracked-${dayKey}-${lastEnd}`,
+            mode: SessionMode.IDLE,
+            startTime: lastEnd,
+            endTime: now,
+            duration: now - lastEnd,
+          });
+        }
+      }
+
+      const totalUntracked = untrackedGaps.reduce((acc, g) => acc + (g.duration || 0), 0);
+      dayData.totalUntracked = totalUntracked;
+
+      // Merge and sort all entries descending by startTime for clean log display
+      const merged = [...dayData.sessions, ...untrackedGaps].sort((a, b) => b.startTime - a.startTime);
+      dayData.allEntries = merged;
+    });
+
+    // 3. Filter groups based on dateFilter, modeFilter, and searchQuery
+    const filteredEntries = Object.entries(groups).filter(([dayKey, dayData]) => {
+      // Date range filter
+      if (dateFilter === 'today') {
+        if (dayData.dateTimestamp !== currentDayStart) return false;
+      } else if (dateFilter === 'week') {
+        const sevenDaysAgo = currentDayStart - 6 * 24 * 60 * 60 * 1000;
+        if (dayData.dateTimestamp < sevenDaysAgo) return false;
+      }
+
+      // Filter entries inside this day
+      const matchingEntries = dayData.allEntries.filter(entry => {
+        // Mode filter
+        if (modeFilter !== 'ALL' && entry.mode !== modeFilter) return false;
+
+        // Search query filter
+        if (searchQuery.trim()) {
+          const q = searchQuery.toLowerCase();
+          const intentMatch = entry.intent?.toLowerCase().includes(q);
+          const reflectionMatch = entry.reflection?.toLowerCase().includes(q);
+          const modeMatch = entry.mode.toLowerCase().includes(q);
+          const isUntrackedMatch = entry.mode === SessionMode.IDLE && ('untracked'.includes(q) || 'idle'.includes(q) || 'void'.includes(q));
+          if (!intentMatch && !reflectionMatch && !modeMatch && !isUntrackedMatch) return false;
+        }
+
+        return true;
+      });
+
+      // Keep only matching entries for display
+      dayData.allEntries = matchingEntries;
+      return matchingEntries.length > 0 || (dateFilter === 'today' && dayKey === currentDayKey);
+    });
+
+    // Sort days descending by dateTimestamp
+    return filteredEntries.sort((a, b) => b[1].dateTimestamp - a[1].dateTimestamp);
+  }, [sessions, dayResetTime, currentDayStart, currentDayKey, dateFilter, modeFilter, searchQuery]);
 
   const toggleDay = (dayKey: string) => {
     setExpandedDays(prev => ({
@@ -111,9 +187,22 @@ const LogTable: React.FC<LogTableProps> = ({
   };
 
   const isDayExpanded = (dayKey: string) => {
-    // Current day is expanded by default unless explicitly closed; others closed by default
     if (expandedDays[dayKey] !== undefined) return expandedDays[dayKey];
     return dayKey === currentDayKey || groupedData.length === 1;
+  };
+
+  const getModeIcon = (mode: SessionMode) => {
+    switch (mode) {
+      case SessionMode.FOCUSED:
+        return <Zap size={12} />;
+      case SessionMode.REST:
+        return <Coffee size={12} />;
+      case SessionMode.DISTRACTED:
+        return <AlertCircle size={12} />;
+      case SessionMode.IDLE:
+      default:
+        return <Ghost size={12} />;
+    }
   };
 
   return (
@@ -150,7 +239,7 @@ const LogTable: React.FC<LogTableProps> = ({
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search missions, reflections..."
+            placeholder="Search missions, reflections, untracked..."
             className="w-full bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl py-2 pl-9 pr-4 text-xs text-zinc-900 dark:text-white placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
           />
         </div>
@@ -162,10 +251,11 @@ const LogTable: React.FC<LogTableProps> = ({
             onChange={(e) => setModeFilter(e.target.value)}
             className="bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-3 py-2 text-xs font-bold text-zinc-700 dark:text-zinc-300 focus:outline-none"
           >
-            <option value="ALL">All Modes</option>
+            <option value="ALL">All Modes & Untracked</option>
             <option value={SessionMode.FOCUSED}>Focused Only</option>
             <option value={SessionMode.REST}>Rest Only</option>
             <option value={SessionMode.DISTRACTED}>Distracted Only</option>
+            <option value={SessionMode.IDLE}>Untracked Only</option>
           </select>
 
           <button
@@ -180,7 +270,7 @@ const LogTable: React.FC<LogTableProps> = ({
       </div>
 
       {/* Empty State */}
-      {groupedData.length === 0 ? (
+      {groupedData.length === 0 || (groupedData.length === 1 && groupedData[0][1].allEntries.length === 0) ? (
         <div className="py-20 text-center bg-zinc-50 dark:bg-zinc-900/40 rounded-[2.5rem] border border-dashed border-zinc-200 dark:border-zinc-800 space-y-3">
           <Calendar className="mx-auto text-zinc-300 dark:text-zinc-700" size={40} />
           <p className="text-zinc-500 dark:text-zinc-400 text-xs font-bold uppercase tracking-wider">
@@ -229,7 +319,12 @@ const LogTable: React.FC<LogTableProps> = ({
                         )}
                       </div>
                       <p className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider mt-0.5">
-                        {dayData.sessions.length} Sessions Logged
+                        {dayData.sessions.length} Logged {dayData.sessions.length === 1 ? 'Session' : 'Sessions'}
+                        {dayData.allEntries.some(e => e.mode === SessionMode.IDLE) && (
+                          <span className="ml-1 text-zinc-400">
+                            · {dayData.allEntries.filter(e => e.mode === SessionMode.IDLE).length} Untracked Gaps
+                          </span>
+                        )}
                       </p>
                     </div>
                   </div>
@@ -237,10 +332,12 @@ const LogTable: React.FC<LogTableProps> = ({
                   {/* Summary Metrics */}
                   <div className="flex items-center gap-4 sm:gap-6">
                     <div className="hidden sm:flex items-center gap-4">
-                      <div className="text-right">
-                        <span className="text-[8px] font-black uppercase tracking-widest text-zinc-400 block">Focus Time</span>
-                        <span className="text-xs font-black mono text-emerald-500">{formatDuration(dayData.totalFocus)}</span>
-                      </div>
+                      {dayData.totalFocus > 0 && (
+                        <div className="text-right">
+                          <span className="text-[8px] font-black uppercase tracking-widest text-zinc-400 block">Focus</span>
+                          <span className="text-xs font-black mono text-emerald-500">{formatDuration(dayData.totalFocus)}</span>
+                        </div>
+                      )}
                       {dayData.totalRest > 0 && (
                         <div className="text-right">
                           <span className="text-[8px] font-black uppercase tracking-widest text-zinc-400 block">Rest</span>
@@ -251,6 +348,12 @@ const LogTable: React.FC<LogTableProps> = ({
                         <div className="text-right">
                           <span className="text-[8px] font-black uppercase tracking-widest text-zinc-400 block">Distracted</span>
                           <span className="text-xs font-black mono text-rose-500">{formatDuration(dayData.totalDist)}</span>
+                        </div>
+                      )}
+                      {dayData.totalUntracked > 0 && (
+                        <div className="text-right">
+                          <span className="text-[8px] font-black uppercase tracking-widest text-zinc-400 block">Untracked</span>
+                          <span className="text-xs font-black mono text-zinc-400 dark:text-zinc-500">{formatDuration(dayData.totalUntracked)}</span>
                         </div>
                       )}
                     </div>
@@ -268,90 +371,127 @@ const LogTable: React.FC<LogTableProps> = ({
                       <thead>
                         <tr className="bg-zinc-50/50 dark:bg-zinc-800/20 border-b border-zinc-100 dark:border-zinc-800">
                           <th className="w-28 px-6 py-3.5 text-[9px] font-black text-zinc-400 dark:text-zinc-500 uppercase tracking-widest">Mode</th>
-                          <th className="w-36 px-6 py-3.5 text-[9px] font-black text-zinc-400 dark:text-zinc-500 uppercase tracking-widest">Time Interval</th>
+                          <th className="w-40 px-6 py-3.5 text-[9px] font-black text-zinc-400 dark:text-zinc-500 uppercase tracking-widest">Time Interval</th>
                           <th className="w-24 px-6 py-3.5 text-[9px] font-black text-zinc-400 dark:text-zinc-500 uppercase tracking-widest">Duration</th>
                           <th className="px-6 py-3.5 text-[9px] font-black text-zinc-400 dark:text-zinc-500 uppercase tracking-widest">Mission & Reflections</th>
-                          <th className="w-20 px-6 py-3.5 text-[9px] font-black text-zinc-400 dark:text-zinc-500 uppercase tracking-widest text-right">Actions</th>
+                          <th className="w-24 px-6 py-3.5 text-[9px] font-black text-zinc-400 dark:text-zinc-500 uppercase tracking-widest text-right">Actions</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-zinc-50 dark:divide-zinc-800/40">
-                        {dayData.sessions.map((session) => (
-                          <tr key={session.id} className="group transition-colors hover:bg-zinc-50/60 dark:hover:bg-zinc-800/30">
-                            
-                            {/* Mode badge */}
-                            <td className="px-6 py-4">
-                              <div className="flex items-center gap-2">
-                                <div className={`w-2 h-2 rounded-full ${MODE_COLORS[session.mode].bg}`} />
-                                <span className={`text-[10px] font-black tracking-widest uppercase ${MODE_COLORS[session.mode].text}`}>
-                                  {session.mode}
+                        {dayData.allEntries.map((session) => {
+                          const isUntracked = session.mode === SessionMode.IDLE;
+
+                          return (
+                            <tr 
+                              key={session.id} 
+                              className={`group transition-colors ${
+                                isUntracked 
+                                  ? 'bg-zinc-50/40 dark:bg-zinc-900/40 hover:bg-zinc-100/60 dark:hover:bg-zinc-800/50' 
+                                  : 'hover:bg-zinc-50/60 dark:hover:bg-zinc-800/30'
+                              }`}
+                            >
+                              
+                              {/* Mode badge */}
+                              <td className="px-6 py-4">
+                                <div className="flex items-center gap-1.5">
+                                  <div className={`w-2 h-2 rounded-full ${MODE_COLORS[session.mode].bg}`} />
+                                  <span className={`text-[10px] font-black tracking-widest uppercase flex items-center gap-1 ${
+                                    isUntracked ? 'text-zinc-400 dark:text-zinc-500 font-semibold' : MODE_COLORS[session.mode].text
+                                  }`}>
+                                    {getModeIcon(session.mode)}
+                                    {isUntracked ? 'Untracked' : session.mode}
+                                  </span>
+                                </div>
+                              </td>
+
+                              {/* Clock Time */}
+                              <td className="px-6 py-4">
+                                <span className={`text-xs font-mono flex items-center gap-1.5 whitespace-nowrap ${
+                                  isUntracked ? 'text-zinc-400 dark:text-zinc-500' : 'text-zinc-500 dark:text-zinc-400'
+                                }`}>
+                                  <Clock size={12} className="opacity-50" />
+                                  {new Date(session.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                  <span className="opacity-40">→</span>
+                                  {session.endTime ? new Date(session.endTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Active'}
                                 </span>
-                              </div>
-                            </td>
+                              </td>
 
-                            {/* Clock Time */}
-                            <td className="px-6 py-4">
-                              <span className="text-xs font-mono text-zinc-500 dark:text-zinc-400 flex items-center gap-1.5 whitespace-nowrap">
-                                <Clock size={12} className="opacity-50" />
-                                {new Date(session.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                <span className="opacity-40">→</span>
-                                {session.endTime ? new Date(session.endTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Active'}
-                              </span>
-                            </td>
+                              {/* Duration */}
+                              <td className="px-6 py-4">
+                                <span className={`text-xs font-black mono ${
+                                  isUntracked ? 'text-zinc-400 dark:text-zinc-500' : 'text-zinc-900 dark:text-zinc-100'
+                                }`}>
+                                  {formatDuration(session.duration || 0)}
+                                </span>
+                              </td>
 
-                            {/* Duration */}
-                            <td className="px-6 py-4">
-                              <span className="text-xs font-black mono text-zinc-900 dark:text-zinc-100">
-                                {formatDuration(session.duration || 0)}
-                              </span>
-                            </td>
+                              {/* Mission / Reflection Notes */}
+                              <td className="px-6 py-4">
+                                <div className="flex flex-col gap-1 max-w-full">
+                                  {isUntracked ? (
+                                    <p className="text-xs text-zinc-400 dark:text-zinc-500 italic">
+                                      Unrecorded gap — click "Log" to claim this time block
+                                    </p>
+                                  ) : (
+                                    <>
+                                      {session.intent && (
+                                        <p className="text-xs text-zinc-800 dark:text-zinc-200 font-medium leading-tight line-clamp-1 group-hover:line-clamp-none transition-all">
+                                          <span className="text-[8px] font-black text-emerald-500 uppercase tracking-tight mr-1.5 opacity-80">Mission</span>
+                                          {session.intent}
+                                        </p>
+                                      )}
+                                      {session.reflection && (
+                                        <p className="text-xs text-zinc-500 dark:text-zinc-400 italic leading-tight line-clamp-1 group-hover:line-clamp-none transition-all">
+                                          <span className="text-[8px] font-black text-rose-500 uppercase tracking-tight mr-1.5 opacity-80">Reflection</span>
+                                          {session.reflection}
+                                        </p>
+                                      )}
+                                      {!session.intent && !session.reflection && (
+                                        <span className="text-xs text-zinc-300 dark:text-zinc-700 italic">No notes</span>
+                                      )}
+                                    </>
+                                  )}
+                                </div>
+                              </td>
 
-                            {/* Mission / Reflection Notes */}
-                            <td className="px-6 py-4">
-                              <div className="flex flex-col gap-1 max-w-full">
-                                {session.intent && (
-                                  <p className="text-xs text-zinc-800 dark:text-zinc-200 font-medium leading-tight line-clamp-1 group-hover:line-clamp-none transition-all">
-                                    <span className="text-[8px] font-black text-emerald-500 uppercase tracking-tight mr-1.5 opacity-80">Mission</span>
-                                    {session.intent}
-                                  </p>
+                              {/* Row Actions */}
+                              <td className="px-6 py-4 text-right">
+                                {isUntracked ? (
+                                  <button
+                                    onClick={() => onEditSession(session)}
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-zinc-200 dark:bg-zinc-800 hover:bg-emerald-500 hover:text-white text-zinc-700 dark:text-zinc-300 text-[10px] font-black uppercase tracking-wider transition-all"
+                                    title="Claim & Record this unlogged time block"
+                                  >
+                                    <PlusCircle size={12} />
+                                    <span>Log</span>
+                                  </button>
+                                ) : (
+                                  <div className="flex items-center justify-end gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
+                                    <button
+                                      onClick={() => onEditSession(session)}
+                                      className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+                                      title="Edit Session"
+                                    >
+                                      <Edit3 size={14} />
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        if (confirm('Delete this session record?')) {
+                                          onDeleteSession(session.id);
+                                        }
+                                      }}
+                                      className="p-1.5 rounded-lg text-zinc-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-500/10 transition-colors"
+                                      title="Delete Session"
+                                    >
+                                      <Trash2 size={14} />
+                                    </button>
+                                  </div>
                                 )}
-                                {session.reflection && (
-                                  <p className="text-xs text-zinc-500 dark:text-zinc-400 italic leading-tight line-clamp-1 group-hover:line-clamp-none transition-all">
-                                    <span className="text-[8px] font-black text-rose-500 uppercase tracking-tight mr-1.5 opacity-80">Reflection</span>
-                                    {session.reflection}
-                                  </p>
-                                )}
-                                {!session.intent && !session.reflection && (
-                                  <span className="text-xs text-zinc-300 dark:text-zinc-700 italic">No notes</span>
-                                )}
-                              </div>
-                            </td>
+                              </td>
 
-                            {/* Row Actions */}
-                            <td className="px-6 py-4 text-right">
-                              <div className="flex items-center justify-end gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
-                                <button
-                                  onClick={() => onEditSession(session)}
-                                  className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
-                                  title="Edit Session"
-                                >
-                                  <Edit3 size={14} />
-                                </button>
-                                <button
-                                  onClick={() => {
-                                    if (confirm('Delete this session record?')) {
-                                      onDeleteSession(session.id);
-                                    }
-                                  }}
-                                  className="p-1.5 rounded-lg text-zinc-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-500/10 transition-colors"
-                                  title="Delete Session"
-                                >
-                                  <Trash2 size={14} />
-                                </button>
-                              </div>
-                            </td>
-
-                          </tr>
-                        ))}
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>

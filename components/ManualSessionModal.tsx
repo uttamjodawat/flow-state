@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
-import { X, PlusCircle, Edit3, Trash2, Zap, Coffee, AlertCircle } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { X, PlusCircle, Edit3, Trash2, Zap, Coffee, AlertCircle, Clock } from 'lucide-react';
 import { Session, SessionMode } from '../types';
 import { MODE_COLORS, DISTRACTION_TAGS } from '../constants';
+import { formatDuration } from '../utils/dateUtils';
 
 interface ManualSessionModalProps {
   isOpen: boolean;
@@ -10,6 +11,7 @@ interface ManualSessionModalProps {
   onDelete?: (sessionId: string) => void;
   initialSession?: Session | null;
   defaultStartTime?: number;
+  defaultEndTime?: number;
 }
 
 const ManualSessionModal: React.FC<ManualSessionModalProps> = ({
@@ -19,14 +21,17 @@ const ManualSessionModal: React.FC<ManualSessionModalProps> = ({
   onDelete,
   initialSession,
   defaultStartTime,
+  defaultEndTime,
 }) => {
-  const isEditing = !!initialSession;
+  const isEditing = !!initialSession && initialSession.id !== 'idle' && !initialSession.id.startsWith('untracked-');
 
-  const [mode, setMode] = useState<SessionMode>(initialSession?.mode || SessionMode.FOCUSED);
+  // If initialSession is untracked (IDLE), default to FOCUSED for easy claiming
+  const initialMode = initialSession?.mode === SessionMode.IDLE ? SessionMode.FOCUSED : (initialSession?.mode || SessionMode.FOCUSED);
+  const [mode, setMode] = useState<SessionMode>(initialMode);
   const [intent, setIntent] = useState(initialSession?.intent || '');
   const [reflection, setReflection] = useState(initialSession?.reflection || '');
   
-  // Helper to format Date into local YYYY-MM-DD
+  // Helpers to format Date into local YYYY-MM-DD and HH:MM
   const formatLocalDate = (d: Date) => {
     const year = d.getFullYear();
     const month = String(d.getMonth() + 1).padStart(2, '0');
@@ -40,41 +45,66 @@ const ManualSessionModal: React.FC<ManualSessionModalProps> = ({
     return `${hours}:${minutes}`;
   };
 
-  // Date and time pickers
-  const now = defaultStartTime ? new Date(defaultStartTime) : new Date();
-  const defaultDateStr = formatLocalDate(now);
-  const defaultTimeStr = formatLocalTime(now);
-
-  const [dateStr, setDateStr] = useState(defaultDateStr);
-  const [startTimeStr, setStartTimeStr] = useState(defaultTimeStr);
-  const [durationMinutes, setDurationMinutes] = useState<number>(() => {
-    if (initialSession?.duration) {
-      return Math.max(1, Math.round(initialSession.duration / (60 * 1000)));
-    }
-    return 25;
-  });
+  // Initial Date & Times
+  const [dateStr, setDateStr] = useState(() => formatLocalDate(new Date()));
+  const [startTimeStr, setStartTimeStr] = useState('09:00');
+  const [endTimeStr, setEndTimeStr] = useState('09:25');
 
   useEffect(() => {
+    if (!isOpen) return;
+
     if (initialSession) {
-      setMode(initialSession.mode);
+      setMode(initialSession.mode === SessionMode.IDLE ? SessionMode.FOCUSED : initialSession.mode);
       setIntent(initialSession.intent || '');
       setReflection(initialSession.reflection || '');
       const sDate = new Date(initialSession.startTime);
+      const eDate = new Date(
+        initialSession.endTime || 
+        (initialSession.startTime + (initialSession.duration || 25 * 60 * 1000))
+      );
       setDateStr(formatLocalDate(sDate));
       setStartTimeStr(formatLocalTime(sDate));
-      if (initialSession.duration) {
-        setDurationMinutes(Math.max(1, Math.round(initialSession.duration / (60 * 1000))));
-      }
+      setEndTimeStr(formatLocalTime(eDate));
     } else {
       setMode(SessionMode.FOCUSED);
       setIntent('');
       setReflection('');
-      const cur = defaultStartTime ? new Date(defaultStartTime) : new Date();
-      setDateStr(formatLocalDate(cur));
-      setStartTimeStr(formatLocalTime(cur));
-      setDurationMinutes(25);
+      const start = defaultStartTime ? new Date(defaultStartTime) : new Date(Date.now() - 25 * 60 * 1000);
+      const end = defaultEndTime ? new Date(defaultEndTime) : new Date(start.getTime() + 25 * 60 * 1000);
+      setDateStr(formatLocalDate(start));
+      setStartTimeStr(formatLocalTime(start));
+      setEndTimeStr(formatLocalTime(end));
     }
-  }, [initialSession, defaultStartTime, isOpen]);
+  }, [initialSession, defaultStartTime, defaultEndTime, isOpen]);
+
+  // Calculate live duration in milliseconds from start and end time
+  const calculatedDurationMs = useMemo(() => {
+    if (!startTimeStr || !endTimeStr) return 0;
+    const [sh, sm] = startTimeStr.split(':').map(Number);
+    const [eh, em] = endTimeStr.split(':').map(Number);
+    if (isNaN(sh) || isNaN(sm) || isNaN(eh) || isNaN(em)) return 0;
+
+    let startMinutes = sh * 60 + sm;
+    let endMinutes = eh * 60 + em;
+
+    // Support overnight sessions if end is earlier in day than start
+    if (endMinutes < startMinutes) {
+      endMinutes += 24 * 60;
+    }
+
+    const diffMinutes = endMinutes - startMinutes;
+    return Math.max(0, diffMinutes * 60 * 1000);
+  }, [startTimeStr, endTimeStr]);
+
+  // Helper to adjust End Time via quick presets
+  const applyDurationPreset = (minutesToAdd: number) => {
+    const [sh, sm] = startTimeStr.split(':').map(Number);
+    if (isNaN(sh) || isNaN(sm)) return;
+    const totalMinutes = sh * 60 + sm + minutesToAdd;
+    const newH = Math.floor(totalMinutes / 60) % 24;
+    const newM = totalMinutes % 60;
+    setEndTimeStr(`${String(newH).padStart(2, '0')}:${String(newM).padStart(2, '0')}`);
+  };
 
   if (!isOpen) return null;
 
@@ -82,23 +112,36 @@ const ManualSessionModal: React.FC<ManualSessionModalProps> = ({
     e.preventDefault();
 
     const [year, month, day] = dateStr.split('-').map(Number);
-    const [h, m] = startTimeStr.split(':').map(Number);
-    const dateObj = new Date(
+    const [sh, sm] = startTimeStr.split(':').map(Number);
+    const [eh, em] = endTimeStr.split(':').map(Number);
+
+    const startDate = new Date(
       year || new Date().getFullYear(),
       (month || 1) - 1,
       day || 1,
-      isNaN(h) ? 0 : h,
-      isNaN(m) ? 0 : m,
+      isNaN(sh) ? 0 : sh,
+      isNaN(sm) ? 0 : sm,
       0,
       0
     );
 
-    const startTime = dateObj.getTime();
-    const duration = Math.max(1, durationMinutes) * 60 * 1000;
+    const startTime = startDate.getTime();
+    let duration = calculatedDurationMs;
+    
+    // Fallback minimum of 1 minute if same time entered
+    if (duration <= 0) {
+      duration = 60 * 1000;
+    }
     const endTime = startTime + duration;
 
+    // Generate clean ID or reuse editing session ID (ignoring temporary untracked- prefix)
+    const isTempId = !initialSession?.id || initialSession.id === 'idle' || initialSession.id.startsWith('untracked-');
+    const sessionId = isTempId 
+      ? (crypto.randomUUID ? crypto.randomUUID() : `manual-${Date.now()}`)
+      : initialSession.id;
+
     const savedSession: Session = {
-      id: initialSession?.id || (crypto.randomUUID ? crypto.randomUUID() : `manual-${Date.now()}`),
+      id: sessionId,
       mode,
       startTime,
       endTime,
@@ -123,10 +166,10 @@ const ManualSessionModal: React.FC<ManualSessionModalProps> = ({
             </div>
             <div>
               <h2 className="text-xl sm:text-2xl font-black text-zinc-900 dark:text-white tracking-tight">
-                {isEditing ? 'Edit Session' : 'Add Missed Session'}
+                {isEditing ? 'Edit Session' : 'Add Session'}
               </h2>
               <p className="text-[10px] uppercase font-bold tracking-[0.2em] text-zinc-400 dark:text-zinc-500 mt-0.5">
-                {isEditing ? 'Modify Past Record' : 'Retroactive Flow Log'}
+                {isEditing ? 'Modify Past Record' : 'Record Time Interval'}
               </p>
             </div>
           </div>
@@ -181,68 +224,79 @@ const ManualSessionModal: React.FC<ManualSessionModalProps> = ({
             </div>
           </div>
 
-          {/* Date and Start Time */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <label className="text-[10px] font-black uppercase tracking-widest text-zinc-400 dark:text-zinc-500">
-                Date
-              </label>
-              <input
-                type="date"
-                value={dateStr}
-                onChange={(e) => setDateStr(e.target.value)}
-                required
-                className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-2xl px-4 py-2.5 text-sm font-medium text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-[10px] font-black uppercase tracking-widest text-zinc-400 dark:text-zinc-500">
-                Start Time
-              </label>
-              <input
-                type="time"
-                value={startTimeStr}
-                onChange={(e) => setStartTimeStr(e.target.value)}
-                required
-                className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-2xl px-4 py-2.5 text-sm font-medium font-mono text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-              />
-            </div>
+          {/* Date Picker */}
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-black uppercase tracking-widest text-zinc-400 dark:text-zinc-500">
+              Date
+            </label>
+            <input
+              type="date"
+              value={dateStr}
+              onChange={(e) => setDateStr(e.target.value)}
+              required
+              className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-2xl px-4 py-2.5 text-sm font-medium text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            />
           </div>
 
-          {/* Duration in minutes */}
+          {/* Start Time and End Time Inputs */}
           <div className="space-y-2">
-            <div className="flex justify-between items-center">
-              <label className="text-[10px] font-black uppercase tracking-widest text-zinc-400 dark:text-zinc-500">
-                Duration (Minutes)
-              </label>
-              <span className="font-mono text-xs font-black text-emerald-600 dark:text-emerald-400">
-                {durationMinutes} min ({Math.floor(durationMinutes / 60)}h {durationMinutes % 60}m)
-              </span>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black uppercase tracking-widest text-zinc-400 dark:text-zinc-500 flex items-center gap-1">
+                  <Clock size={11} /> Start Time
+                </label>
+                <input
+                  type="time"
+                  value={startTimeStr}
+                  onChange={(e) => setStartTimeStr(e.target.value)}
+                  required
+                  className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-2xl px-4 py-2.5 text-sm font-medium font-mono text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black uppercase tracking-widest text-zinc-400 dark:text-zinc-500 flex items-center gap-1">
+                  <Clock size={11} /> End Time
+                </label>
+                <input
+                  type="time"
+                  value={endTimeStr}
+                  onChange={(e) => setEndTimeStr(e.target.value)}
+                  required
+                  className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-2xl px-4 py-2.5 text-sm font-medium font-mono text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+              </div>
             </div>
-            <input
-              type="range"
-              min="1"
-              max="180"
-              step="5"
-              value={durationMinutes}
-              onChange={(e) => setDurationMinutes(Number(e.target.value))}
-              className="w-full accent-emerald-500 cursor-pointer"
-            />
-            <div className="flex gap-2 pt-1">
-              {[15, 25, 45, 60, 90].map((mins) => (
-                <button
-                  key={mins}
-                  type="button"
-                  onClick={() => setDurationMinutes(mins)}
-                  className={`text-[10px] font-bold px-2.5 py-1 rounded-lg border transition-colors ${
-                    durationMinutes === mins
-                      ? 'bg-zinc-900 text-white dark:bg-white dark:text-zinc-900 border-transparent'
-                      : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 border-zinc-200 dark:border-zinc-700 hover:bg-zinc-200'
-                  }`}
-                >
-                  {mins}m
-                </button>
-              ))}
+
+            {/* Live Calculated Duration Badge & Quick Offset Helpers */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-1">
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-black uppercase tracking-widest text-zinc-400">
+                  Duration:
+                </span>
+                <span className={`text-xs font-black font-mono px-2.5 py-0.5 rounded-lg ${
+                  calculatedDurationMs > 0 
+                    ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
+                    : 'bg-rose-500/10 text-rose-500 border border-rose-500/20'
+                }`}>
+                  {calculatedDurationMs > 0 ? formatDuration(calculatedDurationMs) : '0 min'}
+                </span>
+              </div>
+
+              {/* Quick Preset Buttons to Auto-Advance End Time */}
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-widest mr-0.5">Quick:</span>
+                {[15, 25, 45, 60, 90].map((mins) => (
+                  <button
+                    key={mins}
+                    type="button"
+                    onClick={() => applyDurationPreset(mins)}
+                    className="text-[10px] font-bold px-2 py-0.5 rounded-lg bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors"
+                  >
+                    +{mins}m
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
 
