@@ -1,10 +1,11 @@
-const CACHE_NAME = 'flowstate-pwa-v5';
+const CACHE_NAME = 'flowstate-pwa-v6';
 
 const PRECACHE_ASSETS = [
   './',
   './index.html',
   './manifest.json',
   './icon.svg',
+  './404.html',
   'https://cdn.tailwindcss.com'
 ];
 
@@ -48,14 +49,17 @@ self.addEventListener('fetch', (event) => {
           return response;
         })
         .catch(async () => {
-          // If offline or request fails, serve cached index.html
+          // If offline or request fails, serve cached index.html or 404.html
           const cache = await caches.open(CACHE_NAME);
-          return (
+          const cached =
             (await cache.match(event.request)) ||
             (await cache.match('./index.html')) ||
+            (await cache.match('./404.html')) ||
+            (await cache.match('index.html')) ||
             (await cache.match('./')) ||
-            (await cache.match('/'))
-          );
+            (await cache.match(self.registration.scope));
+          if (cached) return cached;
+          return new Response('Offline', { status: 200, headers: { 'Content-Type': 'text/html' } });
         })
     );
     return;

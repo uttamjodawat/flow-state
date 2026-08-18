@@ -545,6 +545,8 @@ const App: React.FC = () => {
 
               <LogTable 
                 sessions={sessions}
+                activeSession={activeSession}
+                currentTime={currentTime}
                 dayResetTime={dayResetTime}
                 onEditSession={(session) => {
                   setEditingSession(session);
@@ -582,6 +584,8 @@ const App: React.FC = () => {
 
             <LogTable 
               sessions={sessions}
+              activeSession={activeSession}
+              currentTime={currentTime}
               dayResetTime={dayResetTime}
               onEditSession={(session) => {
                 setEditingSession(session);

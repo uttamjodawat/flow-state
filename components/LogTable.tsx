@@ -22,6 +22,8 @@ import {
 
 interface LogTableProps {
   sessions: Session[];
+  activeSession?: Session | null;
+  currentTime?: number;
   dayResetTime: string;
   onEditSession: (session: Session) => void;
   onDeleteSession: (sessionId: string) => void;
@@ -42,6 +44,8 @@ interface DayGroupData {
 
 const LogTable: React.FC<LogTableProps> = ({
   sessions,
+  activeSession,
+  currentTime,
   dayResetTime,
   onEditSession,
   onDeleteSession,
@@ -54,13 +58,13 @@ const LogTable: React.FC<LogTableProps> = ({
   // Track expanded state of day sections; default current day to true
   const [expandedDays, setExpandedDays] = useState<Record<string, boolean>>({});
 
-  const currentDayStart = useMemo(() => getVirtualDayStart(Date.now(), dayResetTime), [dayResetTime]);
-  const currentDayKey = useMemo(() => formatVirtualDayKey(Date.now(), dayResetTime), [dayResetTime]);
+  const now = currentTime || Date.now();
+  const currentDayStart = useMemo(() => getVirtualDayStart(now, dayResetTime), [now, dayResetTime]);
+  const currentDayKey = useMemo(() => formatVirtualDayKey(now, dayResetTime), [now, dayResetTime]);
 
   // Group and compute tracked and untracked sessions per day
   const groupedData = useMemo(() => {
     const groups: Record<string, DayGroupData> = {};
-    const now = Date.now();
 
     // 1. Group all existing tracked sessions by virtual day
     sessions.forEach(session => {
@@ -86,8 +90,8 @@ const LogTable: React.FC<LogTableProps> = ({
       else if (session.mode === SessionMode.DISTRACTED) groups[dayKey].totalDist += duration;
     });
 
-    // If today has no sessions yet, ensure today exists if in 'today' or 'week' filter
-    if (!groups[currentDayKey] && dateFilter !== 'all') {
+    // Ensure current active day always exists in the group list
+    if (!groups[currentDayKey]) {
       groups[currentDayKey] = {
         dateTimestamp: currentDayStart,
         sessions: [],
@@ -103,34 +107,91 @@ const LogTable: React.FC<LogTableProps> = ({
     Object.entries(groups).forEach(([dayKey, dayData]) => {
       const daySorted = [...dayData.sessions].sort((a, b) => a.startTime - b.startTime);
       const untrackedGaps: Session[] = [];
+      const isToday = dayKey === currentDayKey;
 
-      // Gaps between consecutive sessions (at least 60 seconds)
-      for (let i = 0; i < daySorted.length - 1; i++) {
-        const currentEnd = daySorted[i].endTime || (daySorted[i].startTime + (daySorted[i].duration || 0));
-        const nextStart = daySorted[i + 1].startTime;
-        if (nextStart - currentEnd >= 60 * 1000) {
-          untrackedGaps.push({
-            id: `untracked-${dayKey}-${currentEnd}`,
-            mode: SessionMode.IDLE,
-            startTime: currentEnd,
-            endTime: nextStart,
-            duration: nextStart - currentEnd,
-          });
+      if (isToday) {
+        // Today's untracked intervals
+        if (daySorted.length === 0) {
+          // No sessions yet today
+          const limitTime = activeSession ? activeSession.startTime : now;
+          if (limitTime - currentDayStart >= 60 * 1000) {
+            untrackedGaps.push({
+              id: `untracked-${dayKey}-${currentDayStart}`,
+              mode: SessionMode.IDLE,
+              startTime: currentDayStart,
+              endTime: limitTime,
+              duration: limitTime - currentDayStart,
+            });
+          }
+        } else {
+          // Morning gap before the first session of the day
+          if (daySorted[0].startTime - currentDayStart >= 60 * 1000) {
+            untrackedGaps.push({
+              id: `untracked-${dayKey}-${currentDayStart}`,
+              mode: SessionMode.IDLE,
+              startTime: currentDayStart,
+              endTime: daySorted[0].startTime,
+              duration: daySorted[0].startTime - currentDayStart,
+            });
+          }
+
+          // Gaps between consecutive logged sessions
+          for (let i = 0; i < daySorted.length - 1; i++) {
+            const currentEnd = daySorted[i].endTime || (daySorted[i].startTime + (daySorted[i].duration || 0));
+            const nextStart = daySorted[i + 1].startTime;
+            if (nextStart - currentEnd >= 60 * 1000) {
+              untrackedGaps.push({
+                id: `untracked-${dayKey}-${currentEnd}`,
+                mode: SessionMode.IDLE,
+                startTime: currentEnd,
+                endTime: nextStart,
+                duration: nextStart - currentEnd,
+              });
+            }
+          }
+
+          // Trailing gap from last session to active session or now
+          const last = daySorted[daySorted.length - 1];
+          const lastEnd = last.endTime || (last.startTime + (last.duration || 0));
+          const limitTime = activeSession ? activeSession.startTime : now;
+          if (limitTime - lastEnd >= 60 * 1000) {
+            untrackedGaps.push({
+              id: `untracked-${dayKey}-${lastEnd}`,
+              mode: SessionMode.IDLE,
+              startTime: lastEnd,
+              endTime: limitTime,
+              duration: limitTime - lastEnd,
+            });
+          }
         }
-      }
+      } else {
+        // Past day untracked intervals
+        if (daySorted.length > 0) {
+          // Morning gap before first session
+          if (daySorted[0].startTime - dayData.dateTimestamp >= 60 * 1000) {
+            untrackedGaps.push({
+              id: `untracked-${dayKey}-${dayData.dateTimestamp}`,
+              mode: SessionMode.IDLE,
+              startTime: dayData.dateTimestamp,
+              endTime: daySorted[0].startTime,
+              duration: daySorted[0].startTime - dayData.dateTimestamp,
+            });
+          }
 
-      // Trailing untracked gap for today up to now
-      if (dayKey === currentDayKey && daySorted.length > 0) {
-        const last = daySorted[daySorted.length - 1];
-        const lastEnd = last.endTime || (last.startTime + (last.duration || 0));
-        if (now - lastEnd >= 60 * 1000) {
-          untrackedGaps.push({
-            id: `untracked-${dayKey}-${lastEnd}`,
-            mode: SessionMode.IDLE,
-            startTime: lastEnd,
-            endTime: now,
-            duration: now - lastEnd,
-          });
+          // Gaps between sessions
+          for (let i = 0; i < daySorted.length - 1; i++) {
+            const currentEnd = daySorted[i].endTime || (daySorted[i].startTime + (daySorted[i].duration || 0));
+            const nextStart = daySorted[i + 1].startTime;
+            if (nextStart - currentEnd >= 60 * 1000) {
+              untrackedGaps.push({
+                id: `untracked-${dayKey}-${currentEnd}`,
+                mode: SessionMode.IDLE,
+                startTime: currentEnd,
+                endTime: nextStart,
+                duration: nextStart - currentEnd,
+              });
+            }
+          }
         }
       }
 
@@ -177,7 +238,7 @@ const LogTable: React.FC<LogTableProps> = ({
 
     // Sort days descending by dateTimestamp
     return filteredEntries.sort((a, b) => b[1].dateTimestamp - a[1].dateTimestamp);
-  }, [sessions, dayResetTime, currentDayStart, currentDayKey, dateFilter, modeFilter, searchQuery]);
+  }, [sessions, activeSession, now, dayResetTime, currentDayStart, currentDayKey, dateFilter, modeFilter, searchQuery]);
 
   const toggleDay = (dayKey: string) => {
     setExpandedDays(prev => ({
@@ -274,7 +335,7 @@ const LogTable: React.FC<LogTableProps> = ({
         <div className="py-20 text-center bg-zinc-50 dark:bg-zinc-900/40 rounded-[2.5rem] border border-dashed border-zinc-200 dark:border-zinc-800 space-y-3">
           <Calendar className="mx-auto text-zinc-300 dark:text-zinc-700" size={40} />
           <p className="text-zinc-500 dark:text-zinc-400 text-xs font-bold uppercase tracking-wider">
-            {dateFilter === 'today' ? 'No sessions logged for today yet.' : 'No sessions match your filter criteria.'}
+            {dateFilter === 'today' ? 'No activity recorded for today yet.' : 'No sessions match your filter criteria.'}
           </p>
           <p className="text-zinc-400 text-xs max-w-sm mx-auto font-medium">
             Start a live focus session from the timer or click "Add Session" to record a past block.
